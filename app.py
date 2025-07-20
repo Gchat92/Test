@@ -4,19 +4,20 @@ import cv2
 import numpy as np
 from PIL import Image
 from io import BytesIO
+import matplotlib.pyplot as plt
 
-st.set_page_config(page_title="Drone Logo Visualiser", layout="centered")
-st.title("Drone Logo Visualiser")
-st.markdown("Upload your logo and see how it could look made of 100–1000 drones.")
+st.set_page_config(page_title="Drone Logo Mockup", layout="wide")
+st.title("Drone Logo Mockup Tool")
+st.markdown("Upload your logo to see how it might look with 100 to 1000 drones.")
 
 uploaded_file = st.file_uploader("Upload a PNG or JPG logo", type=["png", "jpg", "jpeg"])
 
-def generate_mockup(image_np, spacing):
-    try:
-        gray = cv2.cvtColor(image_np, cv2.COLOR_RGBA2GRAY)
-        _, thresh = cv2.threshold(gray, 10, 255, cv2.THRESH_BINARY)
-        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+def generate_mockup_grid(image_np):
+    gray = cv2.cvtColor(image_np, cv2.COLOR_RGBA2GRAY)
+    _, thresh = cv2.threshold(gray, 10, 255, cv2.THRESH_BINARY)
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
 
+    def draw_drones(spacing, fill=False):
         canvas = np.zeros_like(image_np)
         for contour in contours:
             dist = 0
@@ -26,42 +27,51 @@ def generate_mockup(image_np, spacing):
                 d = np.linalg.norm(np.array(point) - np.array(last_point))
                 dist += d
                 if dist >= spacing:
-                    cv2.circle(canvas, tuple(point), 1, (0, 255, 255, 255), -1)
+                    x, y = point
+                    cv2.circle(canvas, (x, y), 2, (0, 255, 255, 255), -1)
                     dist = 0
                     last_point = point
+            if fill:
+                mask = np.zeros(image_np.shape[:2], dtype=np.uint8)
+                cv2.drawContours(mask, [contour], -1, 255, -1)
+                for y in range(0, image_np.shape[0], spacing):
+                    for x in range(0, image_np.shape[1], spacing):
+                        if mask[y, x]:
+                            cv2.circle(canvas, (x, y), 2, (0, 255, 255, 255), -1)
+        return canvas
 
-        result = np.zeros_like(image_np)
-        result[:, :, 3] = 255
-        mask = canvas[:, :, 0] > 0
-        result[mask] = canvas[mask]
-        return Image.fromarray(result)
-    except Exception as e:
-        st.error(f"Error generating mockup: {e}")
-        return None
+    mockups = {
+        "100 Drones (Outline)": draw_drones(10, fill=False),
+        "300 Drones": draw_drones(6, fill=True),
+        "500 Drones": draw_drones(4, fill=True),
+        "1000 Drones": draw_drones(2, fill=True),
+    }
+
+    fig, axes = plt.subplots(1, 4, figsize=(20, 5))
+    for ax, (label, mockup) in zip(axes, mockups.items()):
+        ax.imshow(cv2.cvtColor(mockup, cv2.COLOR_BGRA2RGBA))
+        ax.set_title(label, color='white')
+        ax.axis("off")
+        ax.set_facecolor("black")
+    plt.tight_layout()
+
+    buf = BytesIO()
+    plt.savefig(buf, format="png", dpi=150, facecolor="black")
+    plt.close()
+    buf.seek(0)
+    return buf
 
 if uploaded_file:
-    try:
-        image = Image.open(uploaded_file).convert("RGBA").resize((512, 512))
-        image_np = np.array(image)
+    image = Image.open(uploaded_file).convert("RGBA").resize((512, 512))
+    image_np = np.array(image)
+    st.image(image, caption="Uploaded Logo", use_container_width=True)
 
-        st.image(image, caption="Original Logo", use_container_width=True)
-        st.write("Generating mockups...")
-
-        drone_counts = [100, 300, 500, 1000]
-        spacings = {100: 10, 300: 6, 500: 4, 1000: 2}
-
-        for count in drone_counts:
-            result = generate_mockup(image_np, spacings[count])
-            if result:
-                st.subheader(f"{count} Drones")
-                st.image(result, use_container_width=True)
-                buf = BytesIO()
-                result.save(buf, format="PNG")
-                st.download_button(
-                    label=f"Download {count} Drone Mockup",
-                    data=buf.getvalue(),
-                    file_name=f"drone_mockup_{count}.png",
-                    mime="image/png"
-                )
-    except Exception as err:
-        st.error(f"Something went wrong: {err}")
+    st.subheader("Drone Mockup Grid")
+    grid_buf = generate_mockup_grid(image_np)
+    st.image(grid_buf, caption="Preview", use_container_width=True)
+    st.download_button(
+        label="Download Full Mockup Grid",
+        data=grid_buf,
+        file_name="drone_mockup_grid.png",
+        mime="image/png"
+    )
