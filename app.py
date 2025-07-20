@@ -6,80 +6,90 @@ from PIL import Image
 from io import BytesIO
 import matplotlib.pyplot as plt
 
-st.set_page_config(page_title="Drone Show Mockup", layout="wide")
-st.title("Drone Show Mockup Grid")
-st.markdown("Upload your logo to generate a realistic 4-panel drone light show mockup.")
+st.set_page_config(page_title="Drone Show Builder", layout="centered")
+st.title("Drone Show Mockup (Structured)")
+st.markdown("Upload a logo and select the number of drones to see structured drone placement based on outline and fill logic.")
 
-def night_sky_background(h, w):
-    bg = np.zeros((h, w, 3), dtype=np.uint8)
-    for _ in range(300):
-        x, y = np.random.randint(0, w), np.random.randint(0, h)
-        cv2.circle(bg, (x, y), 1, (np.random.randint(180, 255),) * 3, -1)
-    gradient = np.linspace(20, 60, h).astype(np.uint8)
-    for y in range(h):
-        bg[y, :, :] += gradient[y]
-    return bg
+def extract_outline(image_np):
+    gray = cv2.cvtColor(image_np, cv2.COLOR_RGBA2GRAY)
+    _, binary = cv2.threshold(gray, 10, 255, cv2.THRESH_BINARY)
+    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return None, []
+    return max(contours, key=cv2.contourArea), contours
 
-def draw_drone_show(contours, height, width, drone_count, fill=False):
-    spacing = int(np.sqrt((height * width) / drone_count))
-    canvas = night_sky_background(height, width)
+def distribute_outline_points(contour, num_points):
+    arc_len = cv2.arcLength(contour, closed=True)
+    interval = arc_len / num_points
+    points = []
+    prev = contour[0][0]
+    acc_len = 0.0
+    points.append(prev)
+    for pt in contour[1:]:
+        pt = pt[0]
+        d = np.linalg.norm(np.array(pt) - np.array(prev))
+        acc_len += d
+        if acc_len >= interval:
+            points.append(pt)
+            acc_len = 0
+        prev = pt
+    return points[:num_points]
 
-    for contour in contours:
-        dist = 0
-        last_point = contour[0][0]
-        for point in contour[1:]:
-            point = point[0]
-            d = np.linalg.norm(np.array(point) - np.array(last_point))
-            dist += d
-            if dist >= spacing:
-                x, y = point
-                cv2.circle(canvas, (x, y), 2, (0, 255, 255), -1)
-                dist = 0
-                last_point = point
+def fill_inside_shape(contour, spacing, shape_size):
+    mask = np.zeros(shape_size[:2], dtype=np.uint8)
+    cv2.drawContours(mask, [contour], -1, 255, -1)
+    fill_points = []
+    for y in range(0, shape_size[0], spacing):
+        for x in range(0, shape_size[1], spacing):
+            if mask[y, x] > 0:
+                fill_points.append((x, y))
+    return fill_points
 
-        if fill:
-            mask = np.zeros((height, width), dtype=np.uint8)
-            cv2.drawContours(mask, [contour], -1, 255, -1)
-            for y in range(0, height, spacing):
-                for x in range(0, width, spacing):
-                    if mask[y, x]:
-                        cv2.circle(canvas, (x, y), 2, (0, 255, 255), -1)
+def generate_mockup(image_np, drone_count):
+    contour, all_contours = extract_outline(image_np)
+    if contour is None:
+        return None
+
+    height, width = image_np.shape[:2]
+    canvas = np.zeros((height, width, 3), dtype=np.uint8)
+
+    if drone_count == 100:
+        points = distribute_outline_points(contour, 100)
+    elif drone_count == 300:
+        outline = distribute_outline_points(contour, 100)
+        fill = fill_inside_shape(contour, spacing=18, shape_size=image_np.shape)
+        points = outline + fill[:200]
+    elif drone_count == 500:
+        outline = distribute_outline_points(contour, 150)
+        fill = fill_inside_shape(contour, spacing=14, shape_size=image_np.shape)
+        points = outline + fill[:350]
+    elif drone_count == 1000:
+        outline = distribute_outline_points(contour, 200)
+        fill = fill_inside_shape(contour, spacing=10, shape_size=image_np.shape)
+        points = outline + fill[:800]
+    else:
+        points = []
+
+    for pt in points:
+        cv2.circle(canvas, tuple(pt), 2, (0, 255, 255), -1)
+
     return canvas
 
 uploaded_file = st.file_uploader("Upload PNG or JPG logo", type=["png", "jpg", "jpeg"])
+drone_count = st.selectbox("Select drone count", [100, 300, 500, 1000])
 
 if uploaded_file:
     image = Image.open(uploaded_file).convert("RGBA").resize((512, 512))
     image_np = np.array(image)
-
     st.image(image, caption="Uploaded Logo", use_container_width=True)
 
-    st.subheader("Generating Mockup Grid...")
-
-    gray = cv2.cvtColor(image_np, cv2.COLOR_RGBA2GRAY)
-    _, thresh = cv2.threshold(gray, 10, 255, cv2.THRESH_BINARY)
-    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-    height, width = image_np.shape[:2]
-
-    mockup_grid = {
-        "100 Drones (Outline)": draw_drone_show(contours, height, width, 100, fill=False),
-        "300 Drones": draw_drone_show(contours, height, width, 300, fill=True),
-        "500 Drones": draw_drone_show(contours, height, width, 500, fill=True),
-        "1000 Drones": draw_drone_show(contours, height, width, 1000, fill=True),
-    }
-
-    fig, axes = plt.subplots(1, 4, figsize=(20, 6))
-    for ax, (title, img) in zip(axes, mockup_grid.items()):
-        ax.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-        ax.set_title(title, color='white')
-        ax.axis("off")
-        ax.set_facecolor("black")
-    plt.tight_layout()
-
-    buf = BytesIO()
-    plt.savefig(buf, format="png", dpi=150, facecolor="black")
-    plt.close()
-    buf.seek(0)
-
-    st.image(buf, caption="Mockup Preview", use_container_width=True)
-    st.download_button("Download Full Mockup Grid", data=buf, file_name="drone_mockup_grid.png", mime="image/png")
+    st.subheader(f"Generating {drone_count} Drone Mockup...")
+    mockup = generate_mockup(image_np, drone_count)
+    if mockup is not None:
+        st.image(mockup, caption=f"{drone_count} Drone Mockup", use_container_width=True)
+        result = Image.fromarray(cv2.cvtColor(mockup, cv2.COLOR_BGR2RGB))
+        buf = BytesIO()
+        result.save(buf, format="PNG")
+        st.download_button("Download Mockup", data=buf.getvalue(), file_name=f"drone_mockup_{drone_count}.png", mime="image/png")
+    else:
+        st.error("Could not extract outline from the uploaded image.")
