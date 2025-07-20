@@ -5,22 +5,18 @@ import numpy as np
 from PIL import Image
 from io import BytesIO
 
-st.set_page_config(page_title="Drone Logo Mockup", layout="centered")
-st.title("FlightShows: Drone Logo Visualiser")
-st.markdown("Upload your logo and see how it might look with 100–1000 drones in the sky.")
+st.set_page_config(page_title="Drone Logo Visualiser", layout="centered")
+st.title("Drone Logo Visualiser")
+st.markdown("Upload your logo and see how it could look made of 100–1000 drones.")
 
 uploaded_file = st.file_uploader("Upload a PNG or JPG logo", type=["png", "jpg", "jpeg"])
 
-@st.cache_data
-def process_logo(image_file):
-    image = Image.open(image_file).convert("RGBA")
-    image = image.resize((512, 512))
-    image_np = np.array(image)
-    gray = cv2.cvtColor(image_np, cv2.COLOR_RGBA2GRAY)
-    _, thresh = cv2.threshold(gray, 10, 255, cv2.THRESH_BINARY)
-    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+def generate_mockup(image_np, spacing):
+    try:
+        gray = cv2.cvtColor(image_np, cv2.COLOR_RGBA2GRAY)
+        _, thresh = cv2.threshold(gray, 10, 255, cv2.THRESH_BINARY)
+        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
 
-    def generate_mockup(spacing):
         canvas = np.zeros_like(image_np)
         for contour in contours:
             dist = 0
@@ -33,27 +29,39 @@ def process_logo(image_file):
                     cv2.circle(canvas, tuple(point), 1, (0, 255, 255, 255), -1)
                     dist = 0
                     last_point = point
+
         result = np.zeros_like(image_np)
         result[:, :, 3] = 255
         mask = canvas[:, :, 0] > 0
         result[mask] = canvas[mask]
         return Image.fromarray(result)
-
-    return {
-        100: generate_mockup(10),
-        300: generate_mockup(6),
-        500: generate_mockup(4),
-        1000: generate_mockup(2)
-    }
+    except Exception as e:
+        st.error(f"Error generating mockup: {e}")
+        return None
 
 if uploaded_file:
-    st.image(uploaded_file, caption="Uploaded Logo", use_column_width=True)
-    st.write("Generating drone show mockups...")
-    mockups = process_logo(uploaded_file)
+    try:
+        image = Image.open(uploaded_file).convert("RGBA").resize((512, 512))
+        image_np = np.array(image)
 
-    for count, img in mockups.items():
-        st.subheader(f"{count} Drones")
-        st.image(img, use_column_width=True)
-        buf = BytesIO()
-        img.save(buf, format="PNG")
-        st.download_button(f"Download {count} Drones Mockup", data=buf.getvalue(), file_name=f"drone_mockup_{count}.png", mime="image/png")
+        st.image(image, caption="Original Logo", use_column_width=True)
+        st.write("Generating mockups...")
+
+        drone_counts = [100, 300, 500, 1000]
+        spacings = {100: 10, 300: 6, 500: 4, 1000: 2}
+
+        for count in drone_counts:
+            result = generate_mockup(image_np, spacings[count])
+            if result:
+                st.subheader(f"{count} Drones")
+                st.image(result, use_column_width=True)
+                buf = BytesIO()
+                result.save(buf, format="PNG")
+                st.download_button(
+                    label=f"Download {count} Drone Mockup",
+                    data=buf.getvalue(),
+                    file_name=f"drone_mockup_{count}.png",
+                    mime="image/png"
+                )
+    except Exception as err:
+        st.error(f"Something went wrong: {err}")
