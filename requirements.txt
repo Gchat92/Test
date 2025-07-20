@@ -1,5 +1,6 @@
-streamlit
+fastapi
+uvicorn
 opencv-python-headless
-Pillow
-matplotlib
 numpy
+Pillow
+python-multipart

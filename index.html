@@ -1,0 +1,44 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Drone Logo Mockup</title>
+  <style>
+    body { font-family: sans-serif; text-align: center; margin-top: 50px; background: #111; color: #eee; }
+    img { margin-top: 20px; border: 2px solid #444; background: black; }
+    input, select, button { margin: 10px; padding: 10px; }
+  </style>
+</head>
+<body>
+  <h1>Drone Show Logo Mockup</h1>
+  <input type="file" id="logo" accept="image/*" />
+  <select id="count">
+    <option value="100">100 drones</option>
+    <option value="300">300 drones</option>
+    <option value="500">500 drones</option>
+    <option value="1000">1000 drones</option>
+  </select>
+  <br />
+  <button onclick="generate()">Generate Mockup</button>
+  <br />
+  <img id="preview" width="300" height="300" />
+  <script>
+    async function generate() {
+      const fileInput = document.getElementById("logo");
+      const count = document.getElementById("count").value;
+      const formData = new FormData();
+      formData.append("file", fileInput.files[0]);
+      formData.append("drones", count);
+
+      const res = await fetch("http://localhost:8000/generate", {
+        method: "POST",
+        body: formData
+      });
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      document.getElementById("preview").src = url;
+    }
+  </script>
+</body>
+</html>
